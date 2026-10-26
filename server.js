@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const app = express();
+app.set('trust proxy', 1);
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const TOKEN = process.env.PRINTIFY_API_TOKEN;
@@ -22,6 +23,19 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.static(path.join(here, 'public')));
+
+// Basic abuse protection for uploads: only your store's origins, and 20 saves per hour per visitor.
+const hits = new Map();
+function guardUploads(req, res, next) {
+  const origin = req.headers.origin;
+  if (allowed.length && !(origin && allowed.includes(origin)) && origin !== `${req.protocol}://${req.get('host')}`) {
+    return res.status(403).json({ error: 'Origin not allowed.' });
+  }
+  const now = Date.now(), key = req.ip, list = (hits.get(key) || []).filter(t => now - t < 3600_000);
+  if (list.length >= 20) return res.status(429).json({ error: 'Too many saves. Please try again later.' });
+  list.push(now); hits.set(key, list);
+  next();
+}
 
 async function printify(pathname, options = {}) {
   if (!TOKEN || !SHOP_ID) throw new Error('Printify is not configured. Set PRINTIFY_API_TOKEN and PRINTIFY_SHOP_ID on the server.');
@@ -47,8 +61,8 @@ app.get('/api/products', async (_req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// Uploads finished artwork to the Printify media library. This does NOT place an order.
-app.post('/api/artwork', async (req, res) => {
+// Saves the customer's finished artwork to the Printify media library. This does NOT place an order.
+app.post('/api/artwork', guardUploads, async (req, res) => {
   try {
     const { fileName, dataUrl } = req.body || {};
     if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png;base64,')) {
