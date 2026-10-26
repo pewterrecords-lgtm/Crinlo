@@ -62,3 +62,11 @@ app.post('/api/artwork', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Crinlo Printify customiser listening on ${PORT}`));
+
+// TEMPORARY: remove after reading the shop ID
+app.get('/api/_shops', async (_req, res) => {
+  try {
+    const r = await fetch('https://api.printify.com/v1/shops.json', { headers: { Authorization: `Bearer ${TOKEN}` } });
+    res.status(r.status).type('json').send(await r.text());
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
